@@ -1,3 +1,5 @@
+# pylint: disable=no-member,unused-variable
+
 from collections import OrderedDict
 import heterocl as hcl
 import heterocl.tvm as tvm
@@ -12,7 +14,7 @@ max = hcl.reducer(-1, lambda x, y: tvm.make.Max(x, y), dtype)
 def simplify(expr):
     return tvm.ir_pass.Simplify(expr) if isinstance(expr, tvm.expr.Expr) else expr
 
-def pad(data, pad_before, pad_after=None, pad_value=0.0):
+def pad(data, pad_before, pad_after=None, pad_value=0.0, name='pad'):
     n = len(data.shape)
     pad_after = pad_after if pad_after else pad_before
     out_shape = tuple(
@@ -32,7 +34,7 @@ def pad(data, pad_before, pad_after=None, pad_value=0.0):
             not_zero = tvm.all(*not_zero)
             return tvm.select(not_zero, data[tuple(index_tuple)], pad_value)
         return data[tuple(index_tuple)]
-    return hcl.compute(out_shape, _pad, name='pad')
+    return hcl.compute(out_shape, _pad, name=name)
 
 def conv2d_nchw(Input, Filter, name="conv2d", stride=[1,1], padding=[[0,0],[0,0]]):
     out_dtype = Input.dtype
@@ -126,7 +128,7 @@ def max_pool(data, kernel, stride, padding=[[0,0],[0,0]], name="max_pool"):
             ('stride_w', stride[0]),
             ('app_name', tvm.make.StringImm('max_pool'))]))
 
-def flatten(data):
+def flatten(data, name='flatten'):
     ishape = data.shape
     dim = 1
     for i in range(1, len(ishape)):
@@ -140,7 +142,7 @@ def flatten(data):
             idx = idx / s
         return list(reversed(index))
 
-    return hcl.compute(oshape, lambda i, j: data[tuple([i] + unwrap(j, ishape[1:]))],
+    return hcl.compute(oshape, lambda i, j: data[tuple([i] + unwrap(j, ishape[1:]))], name=name,
                        attrs=OrderedDict([('app_name', tvm.make.StringImm('flatten'))]))
 
 def softmax(out, x):
