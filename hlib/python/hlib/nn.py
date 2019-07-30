@@ -36,42 +36,65 @@ def pad(data, pad_before, pad_after=None, pad_value=0.0, name='pad'):
         return data[tuple(index_tuple)]
     return hcl.compute(out_shape, _pad, name=name)
 
-def conv2d_nchw(Input, Filter, name="conv2d", stride=[1,1], padding=[[0,0],[0,0]]):
-    out_dtype = Input.dtype
+def get_pad_tuple(padding, kernel):
+    # compute the padding size
+    if isinstance(padding, (tuple, list)):
+        pad_h = padding[0] * 2
+        pad_w = padding[1] * 2
+    elif isinstance(padding, int):
+        pad_h = pad_w = padding * 2
+    elif padding == "VALID":
+        pad_h = 0
+        pad_w = 0
+    elif padding == "SAME":
+        pad_h = kernel[0] - 1
+        pad_w = kernel[1] - 1
+    else:
+        raise ValueError("Unknown padding option %s" % padding)
+    pad_top = (pad_h + 1) // 2
+    pad_left = (pad_w + 1) // 2
+    return pad_top, pad_left, pad_h - pad_top, pad_w - pad_left
+
+def conv2d_nchw(Input, Filter, stride, padding, dilation, out_dtype=None, name="conv2d_nchw"):
+    if out_dtype is None:
+        out_dtype = Input.dtype
+    assert isinstance(stride, int) or len(stride) == 2
+    assert isinstance(dilation, int) or len(dilation) == 2
+    if isinstance(stride, int):
+        stride_h = stride_w = stride
+    else:
+        stride_h, stride_w = stride
+
+    if isinstance(dilation, int):
+        dilation_h = dilation_w = dilation
+    else:
+        dilation_h, dilation_w = dilation
+
     batch, in_channel, in_height, in_width = Input.shape
     num_filter, channel, kernel_h, kernel_w = Filter.shape
-    stride_h, stride_w = stride
-    [pad_top, pad_left], [pad_down, pad_right] = padding
     # compute the output shape
+    dilated_kernel_h = (kernel_h - 1) * dilation_h + 1
+    dilated_kernel_w = (kernel_w - 1) * dilation_w + 1
+    pad_top, pad_left, pad_down, pad_right = get_pad_tuple(
+        padding, (dilated_kernel_h, dilated_kernel_w))
     out_channel = num_filter
-    out_height = simplify((in_height - kernel_h + pad_top + pad_down) // stride_h + 1)
-    out_width = simplify((in_width - kernel_w + pad_left + pad_right) // stride_w + 1)
+    out_height = simplify((in_height - dilated_kernel_h + pad_top + pad_down) // stride_h + 1)
+    out_width = simplify((in_width - dilated_kernel_w + pad_left + pad_right) // stride_w + 1)
     # compute graph
     pad_before = [0, 0, pad_top, pad_left]
     pad_after = [0, 0, pad_down, pad_right]
-    if padding != [[0,0],[0,0]]:
-        Input = pad(Input, pad_before, pad_after)
-    rc = hcl.reduce_axis(0, in_channel)
-    ry = hcl.reduce_axis(0, kernel_h)
-    rx = hcl.reduce_axis(0, kernel_w)
+    temp = pad(Input, pad_before, pad_after, name="pad_temp")
+    rc = hcl.reduce_axis(0, in_channel, name='rc')
+    ry = hcl.reduce_axis(0, kernel_h, name='ry')
+    rx = hcl.reduce_axis(0, kernel_w, name='rx')
 
     return hcl.compute(
         (batch, out_channel, out_height, out_width),
         lambda nn, ff, yy, xx: sum(
-            Input[nn, rc, yy * stride_h + ry, xx * stride_w + rx] *
-            Filter[ff, rc, ry, rx],
-            axis=[rc, ry, rx]),
-        name=name,
-        attrs=OrderedDict([
-            ('p', kernel_h),
-            ('q', kernel_w),
-            ('in_num', in_channel),
-            ('out_num', out_channel),
-            ('out_img_w', out_width),
-            ('out_img_h', out_height),
-            ('cin_dtype', tvm.make.StringImm(Input.dtype)),
-            ('filter_dtype', tvm.make.StringImm(Filter.dtype)),
-            ('app_name', tvm.make.StringImm('cnn'))]))
+            temp[nn, rc, yy * stride_h + ry * dilation_h,
+                 xx * stride_w + rx * dilation_w].astype(out_dtype) *
+            Filter[ff, rc, ry, rx].astype(out_dtype),
+            dtype=out_dtype, axis=[rc, ry, rx]), name=name)
 
 def dense(data, weight, bias=None, name="dense"):
     assert len(data.shape) == 2 and len(weight.shape) == 2, "only support 2-dim dense"
