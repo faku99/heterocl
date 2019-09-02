@@ -55,7 +55,7 @@ def get_pad_tuple(padding, kernel):
     pad_left = (pad_w + 1) // 2
     return pad_top, pad_left, pad_h - pad_top, pad_w - pad_left
 
-def conv2d_nchw(Input, Filter, stride, padding, dilation, out_dtype=None, name="conv2d_nchw"):
+def conv2d_nchw(Input, Filter, bias=None, stride=(1,1), padding='VALID', dilation=(1,1), out_dtype=None, name="conv2d_nchw"):
     if out_dtype is None:
         out_dtype = Input.dtype
     assert isinstance(stride, int) or len(stride) == 2
@@ -88,13 +88,18 @@ def conv2d_nchw(Input, Filter, stride, padding, dilation, out_dtype=None, name="
     ry = hcl.reduce_axis(0, kernel_h, name='ry')
     rx = hcl.reduce_axis(0, kernel_w, name='rx')
 
-    return hcl.compute(
+    conv2d = hcl.compute(
         (batch, out_channel, out_height, out_width),
         lambda nn, ff, yy, xx: sum(
             temp[nn, rc, yy * stride_h + ry * dilation_h,
                  xx * stride_w + rx * dilation_w].astype(out_dtype) *
             Filter[ff, rc, ry, rx].astype(out_dtype),
             dtype=out_dtype, axis=[rc, ry, rx]), name=name)
+
+    if bias is not None:
+        conv2d = hcl.compute(conv2d.shape, lambda i, j, k, l: conv2d[i, j, k, l] + bias[j], name=name)
+
+    return conv2d
 
 def dense(data, weight, bias=None, name="dense"):
     assert len(data.shape) == 2 and len(weight.shape) == 2, "only support 2-dim dense"
