@@ -122,6 +122,10 @@ def dense(data, weight, bias=None, name="dense"):
                 attrs=attrs)
     return matmul
 
+def relu(x, name='relu'):
+    return hcl.compute(x.shape, lambda *args: hcl.select(x[args] < 0, 0.0, x[args]),
+                       name, attrs=OrderedDict([('app_name', tvm.make.StringImm('relu'))]))
+
 def tanh(x, name="tanh"):
     return hcl.compute(x.shape, lambda *args: tvm.tanh(x[args]), name,
                        attrs=OrderedDict([('app_name', tvm.make.StringImm('tanh'))]))
