@@ -106,14 +106,14 @@ def dense(data, weight, bias=None, name="dense"):
     if bias is not None:
         assert len(bias.shape) == 1
     batch, in_dim = data.shape
-    out_dim, _ = weight.shape
+    _, out_dim = weight.shape
     k = hcl.reduce_axis(0, in_dim)
     attrs=OrderedDict([
         ('k', in_dim),
         ('j', out_dim),
         ('i', batch),
         ('app_name', tvm.make.StringImm('mm'))])
-    matmul = hcl.compute((batch, out_dim), lambda i, j: sum(data[i, k] * weight[j, k], axis=k), name, attrs=attrs)
+    matmul = hcl.compute((batch, out_dim), lambda i, j: sum(data[i, k] * weight[k, j], axis=k), name, attrs=attrs)
     if bias is not None:
         matmul = hcl.compute(
                 (batch, out_dim),
